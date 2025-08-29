@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Satellite Gravity Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #4af;
+            --background-dark: #0a0a2a;
+            --background-light: #1a1a40;
+            --panel-background: rgba(0, 0, 30, 0.9);
+            --border-color: #2a4b8d;
+            --text-light: #ccd;
+            --text-highlight: #6df;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(to bottom, var(--background-dark), var(--background-light));
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .header {
+            padding: 0 15px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.7);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        
+        .title-block {
+            text-align: left;
+        }
+
+        h1 {
+            font-size: 20px;
+            color: var(--primary-color);
+            text-shadow: 0 0 10px rgba(0, 150, 255, 0.5);
+        }
+        
+        .subtitle {
+            font-size: 12px;
+            color: var(--text-light);
+        }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #simulation {
+            flex: 1;
+            position: relative;
+        }
+        
+        .physics-panel {
+            width: 340px;
+            background: var(--panel-background);
+            border-left: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            transition: transform 0.3s ease-in-out;
+        }
+        
+        .panel-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .panel-section:last-child { border-bottom: none; margin-bottom: 0; }
+
+        .panel-section h2 { font-size: 20px; color: var(--text-highlight); margin-bottom: 15px; }
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; margin-bottom: 5px; color: var(--text-light); font-size: 14px; }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .slider-container input[type="range"] {
+            flex: 1;
+            height: 5px;
+            -webkit-appearance: none;
+            background: var(--border-color);
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 150, 255, 0.5);
+        }
+        
+        .value-display { min-width: 70px; text-align: right; color: var(--text-highlight); font-weight: bold; font-size: 14px; }
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        
+        button {
+            background: linear-gradient(to bottom, #2a4b8d, #1a3a7d);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        button:hover { background: linear-gradient(to bottom, #3a5b9d, #2a4a8d); }
+
+        .metrics { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .metric { display: flex; justify-content: space-between; padding: 8px; background: rgba(0, 20, 40, 0.6); border-radius: 5px; font-size: 14px; }
+        .metric .label { color: var(--text-light); }
+        .metric .value { color: var(--text-highlight); font-weight: bold; }
+
+        details { border: 1px solid var(--border-color); border-radius: 5px; margin-bottom: 10px; background: rgba(0,0,0,0.2); }
+        summary { padding: 10px; font-weight: bold; cursor: pointer; outline: none; color: var(--text-highlight); list-style-type: '🛰️ '; }
+        details[open] > summary { border-bottom: 1px solid var(--border-color); }
+        .details-content { padding: 15px; }
+
+        .menu-button {
+            display: none; /* Hidden on desktop */
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--primary-color);
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 900px) {
+            .menu-button { display: block; }
+            .container { flex-direction: row; }
+            .physics-panel {
+                position: absolute;
+                right: 0;
+                top: 0;
+                height: 100%;
+                width: 320px;
+                max-width: 90vw;
+                border-left: 1px solid var(--border-color);
+                transform: translateX(100%);
+                z-index: 100;
+            }
+            .physics-panel.panel-open {
+                transform: translateX(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title-block">
+            <h1>Multi-Satellite Simulation</h1>
+            <p class="subtitle">Hover orbit to see data. Release slider to apply.</p>
+        </div>
+        <button id="menuBtn" class="menu-button">☰</button>
+    </div>
+    
+    <div class="container">
+        <div id="simulation"></div>
+        <div class="physics-panel">
+            <div class="panel-section">
+                <h2>Global Controls</h2>
+                <div class="control-group">
+                    <label for="timeScale">Time Scale</label>
+                    <div class="slider-container">
+                        <input type="range" id="timeScale" min="1" max="100" value="50">
+                        <span class="value-display" id="timeScaleValue">50x</span>
+                    </div>
+                </div>
+                 <div class="button-group">
+                    <button id="resetBtn">Reset Orbits</button>
+                    <button id="pauseBtn">Pause</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2>Satellite Configuration</h2>
+                <details open>
+                    <summary>Satellite 1</summary>
+                    <div class="details-content">
+                        <div class="control-group"><label for="altitude1">Altitude (km)</label><div class="slider-container"><input type="range" id="altitude1" min="200" max="40000" value="700" step="100"><span class="value-display" id="altitudeValue1">700 km</span></div></div>
+                        <div class="control-group"><label for="speed1">Speed (m/s)</label><div class="slider-container"><input type="range" id="speed1" min="1000" max="15000" value="7500" step="100"><span class="value-display" id="speedValue1">7500 m/s</span></div></div>
+                        <div class="control-group"><label for="inclination1">Inclination (°)</label><div class="slider-container"><input type="range" id="inclination1" min="0" max="90" value="0" step="1"><span class="value-display" id="inclinationValue1">0°</span></div></div>
+                    </div>
+                </details>
+                <details>
+                    <summary>Satellite 2</summary>
+                    <div class="details-content">
+                         <div class="control-group"><label for="altitude2">Altitude (km)</label><div class="slider-container"><input type="range" id="altitude2" min="200" max="40000" value="1200" step="100"><span class="value-display" id="altitudeValue2">1200 km</span></div></div>
+                        <div class="control-group"><label for="speed2">Speed (m/s)</label><div class="slider-container"><input type="range" id="speed2" min="1000" max="15000" value="6900" step="100"><span class="value-display" id="speedValue2">6900 m/s</span></div></div>
+                        <div class="control-group"><label for="inclination2">Inclination (°)</label><div class="slider-container"><input type="range" id="inclination2" min="0" max="90" value="45" step="1"><span class="value-display" id="inclinationValue2">45°</span></div></div>
+                    </div>
+                </details>
+                <details>
+                    <summary>Satellite 3</summary>
+                    <div class="details-content">
+                         <div class="control-group"><label for="altitude3">Altitude (km)</label><div class="slider-container"><input type="range" id="altitude3" min="200" max="40000" value="35786" step="100"><span class="value-display" id="altitudeValue3">35786 km</span></div></div>
+                        <div class="control-group"><label for="speed3">Speed (m/s)</label><div class="slider-container"><input type="range" id="speed3" min="1000" max="15000" value="3075" step="100"><span class="value-display" id="speedValue3">3075 m/s</span></div></div>
+                        <div class="control-group"><label for="inclination3">Inclination (°)</label><div class="slider-container"><input type="range" id="inclination3" min="0" max="90" value="15" step="1"><span class="value-display" id="inclinationValue3">15°</span></div></div>
+                    </div>
+                </details>
+            </div>
+            
+            <div class="panel-section">
+                <h2>Real-time Metrics (Hovered)</h2>
+                <div class="metrics">
+                    <div class="metric"><span class="label">Distance:</span><span class="value" id="dist">—</span></div>
+                    <div class="metric"><span class="label">Speed:</span><span class="value" id="speed">—</span></div>
+                    <div class="metric"><span class="label">Acceleration:</span><span class="value" id="acc">—</span></div>
+                    <div class="metric"><span class="label">Orbit Type:</span><span class="value" id="orbitType">—</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Constants
+        const G = 6.67430e-11;
+        const EARTH_MASS = 5.972e24;
+        const EARTH_RADIUS = 6.371e6;
+        const SCALE = 1e-6;
+
+        // Sim Globals
+        let timeScale = 50;
+        let isPaused = false;
+        let satellites = [];
+        let hoveredSatellite = null;
+        let INTERSECTED_MESH;
+
+        // Three.js Globals
+        const container = document.getElementById('simulation');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a2a);
+        const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 5000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const textureLoader = new THREE.TextureLoader();
+        let earth;
+
+        function setupScene() {
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enablePan = false; // Keep Earth centered
+            controls.minDistance = 20;
+            controls.maxDistance = 1000;
+
+            const ambientLight = new THREE.AmbientLight(0x666666);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 7);
+            scene.add(directionalLight);
+
+            const starGeometry = new THREE.BufferGeometry();
+            const starPositions = [];
+            for (let i = 0; i < 10000; i++) {
+                starPositions.push((Math.random() - 0.5) * 4000, (Math.random() - 0.5) * 4000, (Math.random() - 0.5) * 4000);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+            const stars = new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 }));
+            scene.add(stars);
+
+            const earthTexture = textureLoader.load('https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg');
+            const earthGeometry = new THREE.SphereGeometry(EARTH_RADIUS * SCALE, 64, 64);
+            const earthMaterial = new THREE.MeshPhongMaterial({ map: earthTexture, specular: 0x333333, shininess: 15 });
+            earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.add(earth);
+        }
+
+        function createSatelliteModel() {
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.SphereGeometry(1.2, 20, 20), new THREE.MeshPhongMaterial({ color: 0xffaa33, emissive: 0x884400, emissiveIntensity: 0.8 }));
+            group.add(body);
+            const panelMat = new THREE.MeshPhongMaterial({ color: 0x4466ff, emissive: 0x2244aa, emissiveIntensity: 0.5 });
+            const panelGeom = new THREE.BoxGeometry(4, 0.3, 2);
+            const panel1 = new THREE.Mesh(panelGeom, panelMat);
+            panel1.position.x = 2.5;
+            group.add(panel1);
+            const panel2 = new THREE.Mesh(panelGeom, panelMat);
+            panel2.position.x = -2.5;
+            group.add(panel2);
+            const scale = (EARTH_RADIUS * SCALE) / 20; // Reduced satellite size
+            group.scale.set(scale, scale, scale);
+            return group;
+        }
+
+        function createOrbitPath(altitude, inclination, color) {
+            const orbitPoints = [];
+            const orbitSegments = 256;
+            const r = (EARTH_RADIUS + altitude * 1000) * SCALE;
+            const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), inclination);
+            for (let i = 0; i <= orbitSegments; i++) {
+                const angle = (i / orbitSegments) * Math.PI * 2;
+                const point = new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r).applyQuaternion(q);
+                orbitPoints.push(point);
+            }
+            const orbitGeometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+            const orbitMaterial = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.6, linewidth: 2 });
+            return new THREE.Line(orbitGeometry, orbitMaterial);
+        }
+
+        function createSatellite(config) {
+            const { altitude, speed, inclination, color } = config;
+            const satMesh = createSatelliteModel();
+            satMesh.visible = false;
+            const orbitPath = createOrbitPath(altitude, inclination, color);
+            
+            const r = (EARTH_RADIUS + altitude * 1000);
+            const initialAngle = Math.random() * Math.PI * 2;
+            const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), inclination);
+            const position = new THREE.Vector3(Math.cos(initialAngle) * r, 0, Math.sin(initialAngle) * r).applyQuaternion(q);
+            const tangent = new THREE.Vector3(-Math.sin(initialAngle), 0, Math.cos(initialAngle)).applyQuaternion(q);
+            const velocity = tangent.multiplyScalar(speed);
+
+            const satObject = { id: THREE.MathUtils.generateUUID(), mesh: satMesh, orbit: orbitPath, position, velocity };
+            orbitPath.userData.satellite = satObject;
+            
+            scene.add(satMesh);
+            scene.add(orbitPath);
+            satellites.push(satObject);
+        }
+
+        function resetSimulation() {
+            satellites.forEach(s => { scene.remove(s.mesh); scene.remove(s.orbit); });
+            satellites = [];
+            hoveredSatellite = null;
+            if (INTERSECTED_MESH) INTERSECTED_MESH.visible = false;
+            INTERSECTED_MESH = null;
+
+            const colors = [0xffeb3b, 0x4caf50, 0x2196f3];
+            for (let i = 1; i <= 3; i++) {
+                createSatellite({
+                    altitude: parseInt(document.getElementById(`altitude${i}`).value),
+                    speed: parseInt(document.getElementById(`speed${i}`).value),
+                    inclination: THREE.MathUtils.degToRad(parseInt(document.getElementById(`inclination${i}`).value)),
+                    color: colors[i-1]
+                });
+            }
+        }
+
+        function updateSatellitePhysics(s, deltaTime) {
+            const direction = s.position.clone().negate().normalize();
+            const r = s.position.length();
+            const forceMagnitude = (G * EARTH_MASS) / (r * r);
+            const acceleration = direction.multiplyScalar(forceMagnitude);
+            s.velocity.add(acceleration.multiplyScalar(deltaTime));
+            s.position.add(s.velocity.clone().multiplyScalar(deltaTime));
+            s.mesh.position.copy(s.position.clone().multiplyScalar(SCALE));
+            if (s.velocity.lengthSq() > 0) {
+                s.mesh.lookAt(s.mesh.position.clone().add(s.velocity.clone().multiplyScalar(SCALE)));
+            }
+        }
+
+        function updateMetrics() {
+            const s = hoveredSatellite;
+            if (!s) {
+                document.getElementById('dist').textContent = '—';
+                document.getElementById('speed').textContent = '—';
+                document.getElementById('acc').textContent = '—';
+                document.getElementById('orbitType').textContent = '—';
+                return;
+            }
+            const r = s.position.length();
+            document.getElementById('dist').textContent = `${((r - EARTH_RADIUS) / 1000).toFixed(0)} km`;
+            const speed = s.velocity.length();
+            document.getElementById('speed').textContent = `${speed.toFixed(0)} m/s`;
+            const acceleration = (G * EARTH_MASS) / (r * r);
+            document.getElementById('acc').textContent = `${acceleration.toFixed(2)} m/s²`;
+            
+            const escapeVelocity = Math.sqrt((2 * G * EARTH_MASS) / r);
+            const circularVelocity = Math.sqrt((G * EARTH_MASS) / r);
+            if (speed < circularVelocity * 0.95) document.getElementById('orbitType').textContent = "Sub-orbital";
+            else if (Math.abs(speed - circularVelocity) / circularVelocity < 0.1) document.getElementById('orbitType').textContent = "Circular";
+            else if (speed < escapeVelocity) document.getElementById('orbitType').textContent = "Elliptical";
+            else document.getElementById('orbitType').textContent = "Escape";
+        }
+
+        function checkIntersections() {
+            raycaster.setFromCamera(mouse, camera);
+            const orbits = satellites.map(s => s.orbit);
+            const intersects = raycaster.intersectObjects(orbits);
+
+            if (intersects.length > 0) {
+                const newHoveredSat = intersects[0].object.userData.satellite;
+                hoveredSatellite = newHoveredSat;
+                if (INTERSECTED_MESH !== newHoveredSat.mesh) {
+                    if (INTERSECTED_MESH) INTERSECTED_MESH.visible = false;
+                    INTERSECTED_MESH = newHoveredSat.mesh;
+                    INTERSECTED_MESH.visible = true;
+                }
+            } else {
+                if (INTERSECTED_MESH) INTERSECTED_MESH.visible = false;
+                INTERSECTED_MESH = null;
+                hoveredSatellite = null;
+            }
+        }
+
+        function handleResize() {
+            const aspect = container.clientWidth / container.clientHeight;
+            camera.aspect = aspect;
+            // Adjust camera Z position for mobile to provide a better default view
+            if (aspect < 1) { // Portrait
+                camera.position.z = 300;
+            } else { // Landscape
+                camera.position.z = 250;
+            }
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function setupEventListeners() {
+            document.getElementById('timeScale').addEventListener('input', e => {
+                timeScale = parseInt(e.target.value);
+                document.getElementById('timeScaleValue').textContent = `${timeScale}x`;
+            });
+            for (let i = 1; i <= 3; i++) {
+                const id = i;
+                document.getElementById(`altitude${id}`).addEventListener('input', e => document.getElementById(`altitudeValue${id}`).textContent = `${e.target.value} km`);
+                document.getElementById(`speed${id}`).addEventListener('input', e => document.getElementById(`speedValue${id}`).textContent = `${e.target.value} m/s`);
+                document.getElementById(`inclination${id}`).addEventListener('input', e => document.getElementById(`inclinationValue${id}`).textContent = `${e.target.value}°`);
+                
+                document.getElementById(`altitude${id}`).addEventListener('change', resetSimulation);
+                document.getElementById(`speed${id}`).addEventListener('change', resetSimulation);
+                document.getElementById(`inclination${id}`).addEventListener('change', resetSimulation);
+            }
+            document.getElementById('resetBtn').addEventListener('click', resetSimulation);
+            document.getElementById('pauseBtn').addEventListener('click', () => { isPaused = !isPaused; document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause'; });
+            document.getElementById('menuBtn').addEventListener('click', () => document.querySelector('.physics-panel').classList.toggle('panel-open'));
+
+            window.addEventListener('keydown', e => { if (e.code === 'Space') { isPaused = !isPaused; document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause'; } });
+            window.addEventListener('resize', handleResize);
+            container.addEventListener('mousemove', e => {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            }, false);
+        }
+
+        let lastTime = 0;
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+            const deltaTime = isPaused ? 0 : ((currentTime - (lastTime || currentTime)) / 1000);
+            lastTime = currentTime;
+            
+            if (earth) {
+                earth.rotation.y += 0.0005;
+            }
+
+            satellites.forEach(s => updateSatellitePhysics(s, deltaTime * timeScale));
+            
+            controls.update();
+            checkIntersections();
+            updateMetrics();
+            renderer.render(scene, camera);
+        }
+
+        // Initialize
+        setupScene();
+        setupEventListeners();
+        resetSimulation();
+        handleResize(); // Set initial camera position
+        animate(0);
+    </script>
+</body>
+</html>>
